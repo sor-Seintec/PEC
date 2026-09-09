@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let email = document.getElementById('login-email').value.trim().toLowerCase();
         // Permite usar Alias: se a pessoa digitar apenas 'ruivo', o sistema autocompleta para 'ruivo@gmail.com'
         if (!email.includes('@')) {
-            email = email + '@gmail.com'; // Domínio padrão
+            email = email === 'desornit' ? 'desornit@prof.educacao.sp.gov.br' : email + '@gmail.com';
         }
 
         const password = document.getElementById('login-password').value;
@@ -219,19 +219,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
+function isAdminUser(user) {
+    return user?.app_metadata?.pec_role === 'admin' || user?.email === 'admin@gmail.com';
+}
+
 async function handleLoginSuccess(user) {
-    currentUser = user;
+    // Renova também o JWT usado nas políticas de acesso do banco.
+    // Uma sessão salva pode conter permissões anteriores à promoção para admin.
+    try {
+        const { data, error } = await supabaseClient.auth.refreshSession();
+        if (error || !data?.session?.user) throw error || new Error('Sessão indisponível');
+        currentUser = data.session.user;
+    } catch (error) {
+        console.error('Erro ao atualizar permissões:', error);
+        showLoginScreen();
+        const message = document.getElementById('login-error');
+        message.textContent = 'Não foi possível atualizar sua sessão. Entre novamente para carregar as permissões.';
+        message.classList.remove('hidden');
+        return;
+    }
+    document.getElementById('gestor-main').classList.add('hidden');
+    document.getElementById('pec-nav-controls').classList.remove('hidden');
+    document.getElementById('btn-gestor').classList.add('hidden');
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app-navbar').classList.remove('hidden');
     document.getElementById('app-main').classList.remove('hidden');
     
     // Mostra botão de gestor se for admin/gestor
-    if (currentUser.email === 'admin@gmail.com' || currentUser.email === 'gestor@gmail.com') {
+    if (isAdminUser(currentUser) || currentUser.email === 'gestor@gmail.com') {
         document.getElementById('btn-gestor').classList.remove('hidden');
     }
     
     
-    if (currentUser.email === 'admin@gmail.com' && document.getElementById('gestor-main').classList.contains('hidden')) {
+    if (isAdminUser(currentUser) && document.getElementById('gestor-main').classList.contains('hidden')) {
         toggleGestorView();
     }
 
