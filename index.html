@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda PEC - Planejamento Semanal</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Supabase JS via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .card-item { cursor: grab; }
+        .card-item:active { cursor: grabbing; }
+        
+        .drop-zone { min-height: 150px; transition: background-color 0.2s; }
+        .drop-zone.drag-over { background-color: #f1f5f9; border: 2px dashed #94a3b8; }
+        
+        /* Cores Aquarela Claras */
+        .bg-escolas { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+        .bg-formacao-blue { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .bg-outros { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .bg-formacoes { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .bg-acompanhamentos { background-color: #fef9c3; color: #854d0e; border: 1px solid #fef08a; }
+        .bg-observacoes { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+        .hover-card:hover { filter: brightness(0.95); transform: translateY(-1px); }
+        .group-folder:hover { transform: scale(1.05); }
+
+        /* === LOCK SYSTEM === */
+        .group-folder.is-locked {
+            opacity: 0.4;
+            cursor: not-allowed !important;
+            filter: grayscale(1) brightness(0.85);
+            transform: none !important;
+            pointer-events: none; /* bloqueia completamente clique e hover */
+        }
+        /* Wrapper que captura o clique quando bloqueado */
+        .locked-btn-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+        }
+        .locked-btn-wrapper .lock-click-trap {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            cursor: not-allowed;
+            border-radius: 1rem;
+        }
+
+        /* Pulse nos botões-chave quando em modo bloqueado */
+        .key-btn-pulse {
+            animation: keyPulse 2s ease-in-out infinite;
+        }
+        @keyframes keyPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+            50%       { box-shadow: 0 0 0 8px rgba(59,130,246,0); }
+        }
+
+        /* Aura de destaque nos botões-chave */
+        .key-btn-glow {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+        }
+
+        /* Toast de bloqueio */
+        #lock-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            z-index: 9999;
+            transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+        #lock-toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Animação de desbloqueio nos botões */
+        @keyframes unlockPop {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.18); filter: brightness(1.15); }
+            100% { transform: scale(1); }
+        }
+        .unlock-pop {
+            animation: unlockPop 0.45s cubic-bezier(0.34,1.56,0.64,1);
+        }
+
+        /* Tag de formação no card */
+        .tag-formacao {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: linear-gradient(135deg, #1d4ed8, #2563eb);
+            color: #ffffff;
+            font-size: 0.625rem;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+            box-shadow: 0 1px 3px rgba(37, 99, 235, 0.35);
+        }
+        .btn-tag-toggle {
+            transition: all 0.15s ease;
+        }
+        .btn-tag-toggle:hover {
+            transform: scale(1.05);
+        }
+
+        /* Modal de Eventos do Dia */
+        #day-events-modal { display: none; }
+        #day-events-modal.open { display: flex; }
+        
+        .modal-backdrop {
+            animation: fadeIn 0.2s ease;
+        }
+        .modal-content {
+            animation: slideUp 0.25s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        
+        /* Botão expandir / ver mais */
+        .btn-see-more {
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-see-more:hover {
+            filter: brightness(0.95);
+            transform: translateY(-1px);
+        }
+
+        /* Célula do dia interativa */
+        .gestor-day-cell {
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        .gestor-day-cell.has-events {
+            cursor: pointer;
+        }
+        .gestor-day-cell.has-events:hover {
+            background-color: #eff6ff !important;
+            box-shadow: inset 0 0 0 2px #3b82f6;
+            z-index: 5;
+        }
+        .gestor-day-cell.has-hidden-events {
+            background-image: linear-gradient(135deg, rgba(59, 130, 246, 0.03) 25%, transparent 25%, transparent 50%, rgba(59, 130, 246, 0.03) 50%, rgba(59, 130, 246, 0.03) 75%, transparent 75%, transparent);
+            background-size: 16px 16px;
+        }
+        .gestor-day-cell .open-hint {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .gestor-day-cell:hover .open-hint {
+            opacity: 1;
+        }
+        .pec-card { background: white; color: #334155; border: 1px solid #dbe2ec; border-left: 3px solid #3b82f6; gap: 6px; }
+        .pec-card-selected { outline: 2px solid #2563eb; outline-offset: 2px; }
+        .pec-select { text-align: left; font-size: 10px; color: #2563eb; padding-right: 18px; }
+        .pec-edit { text-align: left; font-size: 11px; color: #64748b; }
+        .pec-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+        .pec-flag { font-size: 9px; padding: 3px 6px; border-radius: 4px; text-align: left; }
+        .pec-person { display: flex; align-items: center; gap: 5px; font-size: 10px; min-width: 0; overflow-wrap: anywhere; }
+        .pec-avatar { display: grid; place-items: center; flex-shrink: 0; width: 25px; height: 25px; border-radius: 50%; background: #dbeafe; color: #1e40af; font-weight: 700; }
+        .pec-card { padding: 14px; border-radius: 12px; gap: 9px; box-shadow: 0 2px 5px #0f172a06; }
+        .pec-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 3px 0; }
+        .pec-add-flags { border: 1px dashed #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 11px; color: #475569; background: #f8fafc; }
+        .pec-add-flags:hover { border-color: #6366f1; color: #4338ca; background: #eef2ff; }
+        .pec-flag { border-radius: 5px; font-size: 10px; padding: 4px 7px; }
+        button:focus-visible, input:focus-visible { outline: 3px solid #818cf8; outline-offset: 2px; }
+        #flag-dialog { padding: 0; width: min(540px, calc(100vw - 24px)); max-height: 90dvh; border: 1px solid #e2e8f0; border-radius: 20px; color: #334155; box-shadow: 0 24px 80px #0f172a33; }
+        #flag-dialog[open] { display: flex; flex-direction: column; }
+        #flag-dialog::backdrop { background: #0f172a66; backdrop-filter: blur(3px); }
+        .flag-dialog-header { display: flex; justify-content: space-between; align-items: center; padding: 22px 24px 16px; }
+        .flag-eyebrow { font-size: 10px; letter-spacing: .12em; font-weight: 700; color: #6366f1; }
+        #flag-title { font-size: 23px; font-weight: 700; color: #0f172a; margin-top: 3px; }
+        .flag-dialog-header button { width: 36px; height: 36px; background: #f1f5f9; border-radius: 50%; }
+        .flag-context-box { margin: 0 24px; padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #6366f1; border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
+        #flag-meta { font-size: 11px; color: #64748b; margin-top: 5px; }
+        .flag-controls { padding: 16px 24px 12px; }
+        .flag-search-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+        #flag-search { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 13px; }
+        #flag-categories { display: flex; gap: 5px; margin: 12px 0 16px; flex-wrap: wrap; }
+        #flag-categories button { border-radius: 7px; padding: 7px 10px; font-size: 12px; background: #f1f5f9; }
+        #flag-categories button[aria-pressed="true"] { background: #eef2ff; color: #4338ca; font-weight: 700; }
+        .flag-selection-heading { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+        #flag-count { color: #64748b; font-weight: 400; letter-spacing: 0; }
+        #flag-chosen { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; font-size: 12px; color: #64748b; max-height: 86px; overflow: auto; }
+        #flag-options { overflow-y: auto; min-height: 80px; flex: 1; padding: 0 24px 16px; border-top: 1px solid #f1f5f9; }
+        #flag-options h3 { font-size: 10px; color: #64748b; font-weight: 700; letter-spacing: .07em; padding: 16px 0 6px; }
+        .flag-option { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 10px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+        .flag-option:hover { background: #f8fafc; }
+        .flag-option:has(input:checked) { background: #eef2ff; color: #4338ca; }
+        .flag-option input { accent-color: #4f46e5; width: 16px; height: 16px; }
+        .flag-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid #e2e8f0; }
+        .flag-dialog-footer button { padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+        #flag-save { background: #4f46e5; color: white; }
+        #flag-dialog button:disabled { opacity: .55; cursor: wait; }
+        #flag-error { color: #b91c1c; font-size: 12px; padding: 0 24px; }
+        @media(max-width: 600px) { #flag-dialog { margin: auto auto 0; width: 100%; max-height: 94dvh; border-radius: 20px 20px 0 0; } }
+        .pec-notes { border-top: 1px solid #e2e8f0; padding-top: 9px; }
+        .pec-notes-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; color: #64748b; }
+        .pec-notes-input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 12px; resize: vertical; }
+        .pec-notes-error { color: #b91c1c; font-size: 11px; }
+        #gestor-main { overflow-y: auto; padding: 20px; }
+        #gestor-content-area { min-height: 340px; flex-shrink: 0; }
+        .gestor-filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; padding: 16px; background: white; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 14px; }
+        .gestor-filter-bar label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #64748b; font-weight: 600; }
+        .gestor-search-field { flex: 1; min-width: 200px; }
+        .gestor-filter-bar input,.gestor-filter-bar select { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 7px; color: #334155; font-size: 13px; }
+        .gestor-view-button { padding: 7px 11px; border-radius: 6px; color: #475569; font-size: 12px; }
+        .gestor-view-button.active { background: white; color: #4f46e5; box-shadow: 0 1px 4px #0f172a22; font-weight: 700; }
+        .gestor-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+        .gestor-stats > div { border: 1px solid #e2e8f0; background: white; border-radius: 10px; padding: 14px 18px; }
+        .gestor-stats span { display: block; font-size: 11px; color: #64748b; }
+        .gestor-stats strong { font-size: 26px; color: #1e293b; }
+        .gestor-status-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 11px; color: #64748b; padding: 12px 0; }
+        .gestor-calendar-month { display: grid; grid-template-columns: repeat(7,minmax(110px,1fr)); gap: 1px; background: #e2e8f0; overflow: auto; flex: 1; }
+        .gestor-new-cell { padding: 8px; background: white; min-height: 150px; }
+        .gestor-day-open { font-size: 12px; font-weight: 700; color: #475569; width: 100%; text-align: left; padding: 4px 0 9px; }
+        .gestor-event-card { background: white; border: 1px solid #e2e8f0; border-left: 3px solid #818cf8; border-radius: 9px; padding: 14px; margin-bottom: 8px; overflow-wrap: anywhere; }
+        .gestor-event-meta { font-size: 11px; color: #64748b; margin-bottom: 7px; }
+        .gestor-event-card h4 { font-size: 14px; font-weight: 600; color: #1e293b; }
+        .gestor-type { display: inline-block; font-size: 9px; font-weight: 700; color: #4f46e5; margin: 6px 0; }
+        .gestor-event-notes { white-space: pre-wrap; font-size: 12px; color: #64748b; margin-top: 8px; }
+        .gestor-event-card.compact { padding: 7px; }
+        .compact h4 { font-size: 11px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .compact .gestor-event-meta { font-size: 9px; }
+        .compact .gestor-event-notes { display: none; }
+        .gestor-more { font-size: 11px; color: #4f46e5; padding: 6px; }
+        .gestor-agenda-list { overflow: auto; padding: 20px; flex: 1; }
+        .gestor-agenda-list h3 { font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 12px; }
+        .gestor-list-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 12px; margin-bottom: 20px; }
+        .gestor-blank { background: #f8fafc; }
+        @media(max-width: 700px) { .gestor-stats { grid-template-columns: repeat(2,1fr); } #gestor-main { padding: 12px; } }
+        .gestor-tools { background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; flex-shrink: 0; }
+        .gestor-tools-toggle { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; width: 100%; text-align: left; color: #334155; }
+        .gestor-tools-toggle strong { font-size: 13px; display: block; }
+        .gestor-tools-toggle small { font-size: 11px; color: #64748b; }
+        .gestor-expand-arrows { display: flex; flex-direction: column; width: 26px; align-items: center; transition: transform .3s; }
+        .gestor-expand-arrows i { font: 24px/10px sans-serif; transform: rotate(90deg); color: #6366f1; animation: gestorArrow 1.6s infinite; }
+        .gestor-expand-arrows i:nth-child(2) { animation-delay: .15s; }
+        .gestor-expand-arrows i:nth-child(3) { animation-delay: .3s; }
+        @keyframes gestorArrow { 0%,100% { opacity: .25; translate: 0 -2px; } 50% { opacity: 1; translate: 0 3px; } }
+        .gestor-tools-toggle[aria-expanded="true"] .gestor-expand-arrows { transform: rotate(180deg); }
+        .gestor-tools-toggle[aria-expanded="true"] i { animation: none; }
+        .gestor-tools-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
+        .gestor-tools-body.expanded { grid-template-rows: 1fr; }
+        .gestor-tools-inner { min-height: 0; overflow: hidden; }
+        .gestor-tools .gestor-filter-bar { border: 0; border-top: 1px solid #f1f5f9; border-radius: 0; margin: 0; }
+        .gestor-tools .gestor-stats { padding: 0 16px 16px; }
+        .gestor-new-cell { padding: 0; min-height: 120px; }
+        .gestor-date-tile { display: flex; flex-direction: column; align-items: stretch; width: 100%; height: 100%; min-height: 120px; padding: 14px; text-align: left; gap: 12px; transition: background .2s; }
+        .gestor-date-tile:hover { background: #f5f7ff; }
+        .gestor-date-top { display: flex; align-items: center; justify-content: space-between; }
+        .gestor-date-number { color: #334155; font-size: 22px; font-weight: 600; }
+        .gestor-date-tile.is-today .gestor-date-number { background: #4f46e5; color: white; border-radius: 10px; padding: 2px 8px; }
+        .gestor-today-label { font-size: 10px; color: #6366f1; }
+        .gestor-date-count { color: #475569; font-size: 11px; }
+        .gestor-date-count.has-items { color: #4338ca; background: #eef2ff; border-radius: 6px; padding: 5px 7px; align-self: flex-start; }
+        .gestor-date-hint { color: #94a3b8; font-size: 10px; margin-top: auto; }
+        .gestor-day-navigation { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; gap: 8px; border-bottom: 1px solid #e2e8f0; }
+        .gestor-day-navigation button { font-size: 12px; color: #4338ca; padding: 8px; border-radius: 7px; background: #eef2ff; }
+        .gestor-day-navigation button:disabled { opacity: .35; cursor: not-allowed; }
+        .gestor-day-navigation span { font-size: 10px; color: #64748b; }
+        #day-events-modal .modal-content { max-width: 1100px; }
+        #modal-events-list { scroll-behavior: smooth; }
+        @media(prefers-reduced-motion: reduce) { .gestor-expand-arrows i { animation: none; } .gestor-tools-body, .gestor-expand-arrows { transition: none; } }
+        @media(max-width: 600px) { .gestor-day-navigation span { display: none; } }
+        .pec-notes-format { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .pec-notes-format select { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 7px; font-size: 12px; color: #334155; font-weight: 400; }
+        .pec-format-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #cbd5e1; background: white; border-radius: 7px; font-size: 14px; }
+        .pec-format-icon[aria-pressed="true"] { background: #eef2ff; border-color: #6366f1; box-shadow: inset 0 -3px 0 #6366f1; }
+        .pec-format-icon:disabled { opacity: .5; }
+
+        /* === GESTOR CARDS — Design Geométrico com Losangos (Inspirado nos Banners) === */
+        .gestor-event-card {
+            position: relative;
+            overflow: hidden;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-bottom: 12px;
+        }
+        .gestor-event-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.09);
+        }
+        .gestor-event-card.compact {
+            border-radius: 12px;
+            margin-bottom: 8px;
+        }
+
+        /* Banner de topo do card com mosaico geométrico */
+        .gestor-pec-banner {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 18px;
+            min-height: 52px;
+        }
+        /* Mosaico de losangos decorativos sobre o banner */
+        .gestor-banner-mosaic {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .gestor-mosaic-diamond {
+            position: absolute;
+            transform: rotate(45deg);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.22);
+            border: 1.5px solid rgba(255, 255, 255, 0.35);
+        }
+        .gestor-mosaic-diamond.d1 { width: 56px; height: 56px; top: -16px; left: -14px; }
+        .gestor-mosaic-diamond.d2 { width: 38px; height: 38px; top: 12px; left: 36px; background: rgba(255, 255, 255, 0.16); }
+        .gestor-mosaic-diamond.d3 { width: 26px; height: 26px; top: -4px; left: 74px; background: rgba(255, 255, 255, 0.12); }
+        .gestor-mosaic-diamond.d4 { width: 44px; height: 44px; top: -10px; right: 54px; background: rgba(255, 255, 255, 0.14); }
+        .gestor-mosaic-diamond.d5 { width: 22px; height: 22px; bottom: 4px; right: 26px; background: rgba(255, 255, 255, 0.18); }
+
+        /* Tag com destaque visual nítido para o nome do PEC */
+        .gestor-pec-tag {
+            position: relative;
+            z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(4px);
+            padding: 4px 12px 4px 8px;
+            border-radius: 9999px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .gestor-pec-tag i {
+            font-size: 11px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background: rgba(0, 0, 0, 0.06);
+        }
+        .gestor-banner-meta {
+            position: relative;
+            z-index: 2;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.18);
+        }
+
+        /* Corpo do Card */
+        .gestor-card-body {
+            padding: 14px 18px 16px;
+            background: #ffffff;
+        }
+        .compact .gestor-card-body {
+            padding: 8px 12px 10px;
+        }
+        .gestor-card-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.35;
+            margin-bottom: 6px;
+        }
+        .compact .gestor-card-title {
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        /* Modal — Tela Cheia com aproveitamento total */
+        #day-events-modal .modal-content {
+            width: 98vw;
+            max-width: 100vw;
+            height: 96vh;
+            max-height: 96vh;
+            border-radius: 20px;
+        }
+        #modal-events-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 16px;
+            align-items: start;
+            scroll-behavior: smooth;
+        }
+        @media(min-width: 1500px) {
+            #modal-events-list {
+                grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            }
+        }
+        @media(max-width: 768px) {
+            #modal-events-list { grid-template-columns: 1fr; }
+            #day-events-modal .modal-content { width: 100vw; height: 100vh; border-radius: 0; }
+        }
+        #groups-sidebar { width: 112px; flex-shrink: 0; }
+        #cards-popup { left: 112px; }
+        #groups-sidebar .group-folder { width: 88px; min-height: 72px; }
+        #groups-sidebar .group-folder > span:last-child { font-size: 9px; overflow: visible; text-overflow: clip; white-space: nowrap; }
+        #groups-sidebar .convocacao-menu > i { font-size: 28px; }
+        .direct-drag-group { cursor: grab; }
+        .direct-drag-group:active { cursor: grabbing; }
+        .gestor-school-search-field { display: flex; flex-direction: column; gap: 5px; min-width: 220px; max-width: 100%; }
+        .gestor-school-search-field select { max-width: 320px; }
+        .gestor-school-search-field small { font-size: 10px; color: #64748b; }
+        #school-dropdown-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 260px; max-width: 100%; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 7px; color: #334155; font-size: 13px; background: white; text-align: left; }
+        #school-dropdown-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        #gestor-school-filter[hidden] { display: none; }
+        #school-dropdown { position: fixed; margin: 0; padding: 0; border: 1px solid #cbd5e1; border-radius: 9px; background: white; box-shadow: 0 12px 32px #0f172a26; overflow: hidden; }
+        .school-dropdown-search { padding: 9px; border-bottom: 1px solid #e2e8f0; }
+        #school-dropdown .school-dropdown-search input { width: 100%; box-sizing: border-box; font-size: 12px; padding: 9px; }
+        #school-dropdown-options { overflow-y: auto; max-height: 230px; padding: 4px; }
+        .school-dropdown-option { display: block; width: 100%; border: 0; border-radius: 5px; background: white; padding: 10px; text-align: left; font-size: 12px; color: #334155; }
+        .school-dropdown-option:hover, .school-dropdown-option.is-active { background: #eef2ff; color: #4338ca; }
+        .school-dropdown-option[aria-selected="true"] { font-weight: 700; color: #4338ca; }
+        #gestor-school-results { display: block; padding: 7px 12px; color: #64748b; font-size: 10px; border-top: 1px solid #f1f5f9; }
+        #groups-sidebar .absence-menu-separator { margin-top: 30px; padding-top: 18px; border-top: 1px solid #e2e8f0; }
+        #groups-sidebar .absence-menu-separator .group-folder { background: #fee2e2; border-color: #fca5a5; }
+        #groups-sidebar .absence-menu-separator .group-folder > i { color: #dc2626; }
+        .pec-card.absence-card { border-left: 3px solid #dc2626; background: #fff7f7; }
+        .gestor-panels { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; flex-shrink: 0; }
+        .gestor-panels > .is-expanded { grid-column: 1 / -1; order: 1; }
+        .gestor-panels:has(.is-expanded) > :not(.is-expanded) { grid-column: 1 / -1; }
+        .gestor-occurrence-panel { border-color: #fecaca; }
+        .gestor-occurrence-panel > button { background: #fff5f5; color: #b91c1c; }
+        .gestor-occurrence-panel .gestor-expand-arrows i { color: #dc2626; }
+        .gestor-occurrence-help { margin: 12px 16px; font-size: 12px; color: #64748b; }
+        #gestor-occurrences-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 14px; padding: 0 16px 16px; max-height: 480px; overflow-y: auto; }
+        .gestor-occurrence-empty { color: #64748b; font-size: 13px; padding: 20px 0; }
+        .gestor-occurrence-open { margin-top: 10px; padding: 7px 10px; border-radius: 6px; background: #fee2e2; color: #991b1b; font-size: 12px; }
+        .gestor-day-occurrences { color: #b91c1c; background: #fee2e2; padding: 4px 7px; border-radius: 6px; font-size: 10px; align-self: flex-start; }
+        @media(max-width: 650px) { .gestor-panels { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen flex flex-col font-sans overflow-hidden">
+    
+    <!-- Tela de Login -->
+    <div id="login-screen" class="fixed inset-0 bg-blue-900 z-50 flex items-center justify-center">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-96 max-w-full">
+            <div class="text-center mb-6">
+                <i class="fa-solid fa-calendar-day text-4xl text-blue-600 mb-2"></i>
+                <h1 class="text-2xl font-bold text-gray-800">Agenda PEC</h1>
+                <p class="text-sm text-gray-500">Faça login para continuar</p>
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Usuário ou E-mail</label>
+                    <input type="text" id="login-email" required class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Senha</label>
+                    <input type="password" id="login-password" required class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button type="submit" id="login-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 transition">
+                    Entrar
+                </button>
+                <div id="login-error" class="text-red-500 text-sm text-center hidden"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Navbar do Sistema -->
+    <nav id="app-navbar" class="hidden bg-blue-800 text-white shadow-md z-20 p-4 flex items-center justify-between relative">
+        <div class="flex items-center space-x-4">
+            <i class="fa-solid fa-calendar-day text-2xl"></i>
+            <span class="font-bold text-xl">Agenda PEC</span>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button id="btn-gestor" onclick="toggleGestorView()" class="hidden px-3 py-1 bg-yellow-500 hover:bg-yellow-600 rounded text-sm font-bold text-white shadow-sm transition"><i class="fa-solid fa-chart-pie"></i> Painel Gestor</button>
+            <div id="pec-nav-controls" class="flex items-center space-x-2 bg-white/10 p-1 rounded-lg mr-4">
+                <button onclick="changeWeek(-1)" class="p-2 hover:bg-white/20 rounded transition"><i class="fa-solid fa-chevron-left"></i></button>
+                <h2 class="text-md font-bold px-4" id="week-label">Carregando...</h2>
+                <button onclick="changeWeek(1)" class="p-2 hover:bg-white/20 rounded transition"><i class="fa-solid fa-chevron-right"></i></button>
+                <button onclick="goToToday()" class="ml-2 px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-sm font-semibold transition">Hoje</button>
+            </div>
+            <button onclick="logout()" class="px-3 py-1 hover:text-red-300 text-sm font-medium transition" title="Sair"><i class="fa-solid fa-sign-out-alt"></i> Sair</button>
+        </div>
+    </nav>
+
+    <!-- Gestor View -->
+    <div id="gestor-main" class="hidden flex-1 flex flex-col overflow-hidden relative bg-gray-100 p-6">
+        <!-- Header Controls -->
+        <div class="flex flex-col md:flex-row items-center justify-between mb-4 bg-white p-4 rounded-xl shadow-sm border space-y-4 md:space-y-0">
+            <h2 class="text-xl font-bold text-gray-800 flex items-center min-w-max mr-4">
+                <i class="fa-solid fa-users text-blue-600 mr-2"></i> Visão Geral PEC
+            </h2>
+            
+            <div class="flex flex-wrap items-center gap-4">
+                <!-- Filtro de PEC -->
+                <div class="flex items-center bg-gray-50 border rounded-lg px-2 py-1">
+                    <i class="fa-solid fa-filter text-gray-400 mr-2"></i>
+                    <select aria-label="Filtrar por PEC" id="gestor-pec-filter" onchange="renderGestorCalendar()" class="bg-transparent border-none text-sm font-semibold focus:outline-none text-gray-700 cursor-pointer">
+                        <option value="all">Todos os PECs</option>
+                        <!-- Injetado via JS -->
+                    </select>
+                </div>
+
+                <button onclick="gestorToday()" class="gestor-view-button">Hoje</button>
+                <button id="gestor-refresh" onclick="loadGestorEvents()" class="gestor-view-button">Atualizar</button>
+                <!-- Tipo de Visualização -->
+                <div class="flex bg-gray-100 rounded-lg p-1 border">
+                    <button id="btn-view-list" onclick="setGestorView('list')" class="gestor-view-button">Lista</button>
+                    <button id="btn-view-month" onclick="setGestorView('month')" class="px-3 py-1 rounded text-sm font-bold bg-white shadow-sm text-blue-600 transition">Mês</button>
+                    <button id="btn-view-week" onclick="setGestorView('week')" class="px-3 py-1 rounded text-sm font-bold text-gray-500 hover:text-gray-800 transition">Semana</button>
+                    <button id="btn-view-day" onclick="setGestorView('day')" class="px-3 py-1 rounded text-sm font-bold text-gray-500 hover:text-gray-800 transition">Dia</button>
+                </div>
+
+                <!-- Navegação de Data -->
+                <div class="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg border">
+                    <button onclick="changeGestorDate(-1)" class="p-1 hover:bg-gray-200 rounded transition font-bold"><i class="fa-solid fa-chevron-left"></i></button>
+                    <h2 class="text-sm font-bold px-2 min-w-[140px] text-center uppercase text-gray-700" id="gestor-date-label">Carregando...</h2>
+                    <button onclick="changeGestorDate(1)" class="p-1 hover:bg-gray-200 rounded transition font-bold"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="gestor-panels">
+        <section class="gestor-tools" id="gestor-filter-panel">
+            <button id="gestor-tools-toggle" class="gestor-tools-toggle" aria-expanded="false" aria-controls="gestor-tools-body" onclick="toggleGestorTools()">
+                <span><strong>Filtros e indicadores</strong><small id="gestor-filter-summary">Expandir opções de consulta</small></span>
+                <span class="gestor-expand-arrows" aria-hidden="true"><i>›</i><i>›</i><i>›</i></span>
+            </button>
+            <div id="gestor-tools-body" class="gestor-tools-body" inert><div class="gestor-tools-inner">
+        <div class="gestor-filter-bar">
+            <label class="gestor-search-field">Buscar<input id="gestor-search" type="search" placeholder="PEC, escola, flag ou observação…" oninput="renderGestorCalendar()"></label>
+            <label>Turno<select id="gestor-shift-filter" onchange="renderGestorCalendar()"><option value="all">Todos os turnos</option><option>Manhã</option><option>Tarde</option><option>Noite</option></select></label>
+            <label>Atividade<select id="gestor-type-filter" onchange="renderGestorCalendar()"><option value="all">Todos os tipos</option><option value="escolas">Escolas</option><option value="formacao">Convocação</option><option value="npe">NPE</option><option value="observacoes">Ocorrências / ausências</option></select></label>
+            <div class="gestor-school-search-field">
+                <label id="school-filter-label">Escola</label>
+                <button id="school-dropdown-trigger" type="button" popovertarget="school-dropdown" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="school-filter-label school-dropdown-value">
+                    <span id="school-dropdown-value">Todas as escolas</span><span aria-hidden="true">⌄</span>
+                </button>
+                <select id="gestor-school-filter" hidden aria-hidden="true" tabindex="-1"><option value="all">Todas as escolas</option></select>
+                <div id="school-dropdown" popover="auto">
+                    <div class="school-dropdown-search"><input id="gestor-school-search" type="search" role="combobox" aria-label="Pesquisar escola" aria-expanded="true" aria-controls="school-dropdown-options" aria-autocomplete="list" placeholder="Pesquisar escola…" oninput="filterGestorSchoolOptions()" onkeydown="handleSchoolSearchKey(event)"></div>
+                    <div id="school-dropdown-options" role="listbox" aria-label="Escolas"></div>
+                    <small id="gestor-school-results" role="status"></small>
+                </div>
+            </div>
+            <label>Flags<select id="gestor-flag-filter" onchange="renderGestorCalendar()"><option value="all">Todas as flags</option><option value="outros">Outros</option><option value="acompanhamentos">Apoio</option><option value="observacoes">Ocorrências</option><option value="none">Sem flags</option></select></label>
+            <button onclick="clearGestorFilters()" class="gestor-view-button">Limpar filtros</button>
+        </div>
+        <div class="gestor-stats">
+            <div><span>Atividades</span><strong id="gestor-stat-total">0</strong></div>
+            <div><span>PECs com atividades</span><strong id="gestor-stat-pecs">0</strong></div>
+            <div><span>Atividades em escolas</span><strong id="gestor-stat-schools">0</strong></div>
+            <div><span>Atividades com ocorrências</span><strong id="gestor-stat-occurrences">0</strong></div>
+        </div>
+            </div></div>
+        </section>
+        <section class="gestor-tools gestor-occurrence-panel" id="gestor-occurrence-panel">
+            <button id="gestor-occurrences-toggle" class="gestor-tools-toggle" aria-expanded="false" aria-controls="gestor-occurrences-body" onclick="toggleGestorPanel('occurrences')">
+                <span><strong><i class="fa-solid fa-user-minus" aria-hidden="true"></i> Ocorrências</strong><small id="gestor-occurrences-summary" aria-live="polite">Ocorrências do período</small></span>
+                <span class="gestor-expand-arrows" aria-hidden="true"><i>›</i><i>›</i><i>›</i></span>
+            </button>
+            <div id="gestor-occurrences-body" class="gestor-tools-body" inert><div class="gestor-tools-inner">
+                <p class="gestor-occurrence-help">Todas as ocorrências do período consultado, independentemente dos filtros da agenda.</p>
+                <div id="gestor-occurrences-list"></div>
+            </div></div>
+        </section>
+        </div>
+        <div class="gestor-status-row"><p id="gestor-results" aria-live="polite"></p><p id="gestor-status" role="status"></p></div>
+        <div class="flex-1 bg-white rounded-xl shadow-sm border flex flex-col overflow-hidden" id="gestor-content-area">
+            <!-- Header Dias da Semana (será controlado pelo JS) -->
+            <div id="gestor-grid-header" class="grid grid-cols-7 border-b bg-gray-50 flex-none hidden">
+                <div class="p-3 text-center font-bold text-sm text-gray-500">Dom</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-700">Seg</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-700">Ter</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-700">Qua</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-700">Qui</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-700">Sex</div>
+                <div class="p-3 text-center font-bold text-sm text-gray-500">Sáb</div>
+            </div>
+            <!-- Grid Dinâmico -->
+            <div class="flex-1 overflow-y-auto bg-gray-200" id="gestor-calendar-grid">
+                <!-- Preenchido via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container (PEC View) -->
+    <div id="app-main" class="hidden flex-1 flex overflow-hidden relative">
+        
+        <!-- Sidebar Esquerda Estreita (Pastas dos Grupos) -->
+        <div class="w-24 bg-white border-r shadow-sm z-10 flex flex-col items-center py-4 space-y-3 overflow-y-auto overflow-x-visible no-scrollbar" id="groups-sidebar">
+            <!-- Botões das Pastas injetados via JS -->
+        </div>
+
+        <!-- Pop-up lateral (Flyout) para os Cards -->
+        <div id="cards-popup" class="absolute left-24 top-0 bottom-0 w-80 bg-gray-50 border-r shadow-xl z-10 transform -translate-x-full transition-transform duration-300 flex flex-col hidden">
+            <!-- Header do Popup -->
+            <div class="p-4 flex items-center justify-between border-b bg-white">
+                <h3 id="popup-title" class="font-bold text-sm uppercase text-gray-700 tracking-wider">Grupo</h3>
+                <button onclick="closePopup()" class="text-gray-400 hover:text-red-500 transition"><i class="fa-solid fa-times"></i></button>
+            </div>
+            
+            <!-- Barra de Pesquisa dentro do Popup -->
+            <div class="p-3 border-b bg-gray-100">
+                <div class="relative">
+                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i>
+                    <input type="text" id="search-input" placeholder="Pesquisar..." 
+                           class="w-full pl-9 pr-3 py-1.5 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                           onkeyup="filterPopupCards()">
+                </div>
+            </div>
+            
+            <!-- Lista de Cards Arrastáveis -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar" id="popup-cards-container">
+                <!-- Preenchido pelo JS -->
+            </div>
+        </div>
+
+        <!-- Área do Calendário (Drag Target) -->
+        <div class="flex-1 flex flex-col overflow-hidden" onclick="closePopup()">
+            <!-- Banner de Status das Travas das Pastas -->
+            <div id="lock-status-banner" style="display:none;" class="mx-4 mt-3 mb-1 p-2.5 bg-amber-50 border border-amber-200 rounded-lg items-center gap-2 text-xs text-amber-800 shadow-sm">
+                <span class="w-6 h-6 rounded-full bg-amber-200 text-amber-900 inline-flex items-center justify-center font-bold text-xs flex-shrink-0"><i class="fa-solid fa-lock"></i></span>
+                <span><strong>Comece pela atividade.</strong> Arraste uma Escola, Convocação ou NPE para o dia. Depois, use <strong>+ Adicionar flags</strong> no próprio card.</span>
+            </div>
+
+            <div class="flex-1 overflow-x-auto p-4 pt-2">
+                <div class="grid grid-cols-6 gap-2 min-w-[900px] h-full" id="calendar-grid">
+                    <!-- Colunas dos dias preenchidas pelo JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <dialog id="flag-dialog" aria-labelledby="flag-title" oncancel="event.preventDefault(); closeFlagEditor()">
+        <header class="flag-dialog-header">
+            <div><span class="flag-eyebrow">PERSONALIZE A ATIVIDADE</span><h2 id="flag-title">Flags do card</h2></div>
+            <button type="button" data-flag-close onclick="closeFlagEditor()" aria-label="Fechar editor de flags">✕</button>
+        </header>
+        <div class="flag-context-box"><strong id="flag-context"></strong><p id="flag-meta"></p></div>
+        <div class="flag-controls">
+            <label for="flag-search" class="flag-search-label">Encontre uma flag</label>
+            <input id="flag-search" type="search" placeholder="Buscar mentoria, reunião, férias…" oninput="renderFlagEditor()">
+            <div id="flag-categories" aria-label="Filtrar por categoria"></div>
+            <div class="flag-selection-heading">SELECIONADAS <span id="flag-count" aria-live="polite"></span></div>
+            <div id="flag-chosen"></div>
+        </div>
+        <div id="flag-options" aria-label="Flags disponíveis"></div>
+        <p id="flag-error" role="alert"></p>
+        <footer class="flag-dialog-footer"><button data-flag-close onclick="closeFlagEditor()">Cancelar</button><button id="flag-save" onclick="saveFlagEditor()">Salvar flags</button></footer>
+    </dialog>
+
+    <!-- Modal: Todos os Eventos do Dia (Gestor) -->
+    <div id="day-events-modal" role="dialog" aria-modal="true" aria-labelledby="modal-day-title" class="fixed inset-0 z-50 items-center justify-center modal-backdrop" style="background:rgba(15,23,42,0.55);">
+        <div class="modal-content bg-white rounded-2xl shadow-2xl w-full max-w-5xl mx-4 max-h-[92vh] flex flex-col">
+            <!-- Header do Modal -->
+            <div class="flex items-center justify-between p-5 border-b bg-gradient-to-r from-blue-700 to-blue-500 rounded-t-2xl">
+                <div>
+                    <h2 id="modal-day-title" class="text-white font-bold text-lg"></h2>
+                    <p id="modal-day-count" class="text-blue-100 text-sm"></p>
+                </div>
+                <button id="modal-day-close" aria-label="Fechar agendamentos" onclick="closeDayEventsModal()" class="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 text-white transition">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+
+            <div class="gestor-day-navigation">
+                <button id="modal-prev-day" onclick="navigateModalDay(-1)">← Dia anterior</button>
+                <span>Dias do período consultado</span>
+                <button id="modal-next-day" onclick="navigateModalDay(1)">Próximo dia →</button>
+            </div>
+            <!-- Barra de Filtros dentro do modal: Turno + Filtro por PEC -->
+            <div class="flex items-center justify-between gap-3 px-6 py-3 border-b bg-gray-50 flex-none flex-wrap">
+                <!-- Filtro por Turno -->
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-1">Turno:</span>
+                    <button onclick="filterModalShift('all')" id="modal-filter-all"
+                        class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white transition">
+                        Todos
+                    </button>
+                    <button onclick="filterModalShift('Manhã')" id="modal-filter-manha"
+                        class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 transition flex items-center gap-1">
+                        <i class="fa-regular fa-sun text-orange-500"></i> Manhã
+                    </button>
+                    <button onclick="filterModalShift('Tarde')" id="modal-filter-tarde"
+                        class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 transition flex items-center gap-1">
+                        <i class="fa-solid fa-cloud-sun text-yellow-600"></i> Tarde
+                    </button>
+                    <button onclick="filterModalShift('Noite')" id="modal-filter-noite"
+                        class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 transition flex items-center gap-1">
+                        <i class="fa-solid fa-moon text-blue-500"></i> Noite
+                    </button>
+                </div>
+
+                <!-- Filtro por PEC -->
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-tie text-blue-600"></i> Filtrar por PEC:
+                    </span>
+                    <select id="modal-pec-filter" onchange="filterModalPec(this.value)"
+                        class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-bold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                        <option value="all">Todos os PECs</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Lista de Eventos -->
+            <div id="modal-events-list" class="flex-1 overflow-y-auto p-5 space-y-2">
+                <!-- Preenchido via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast de Trava (imersivo) -->
+    <div id="lock-toast" role="alert">
+        <div class="flex items-center gap-3 bg-gray-900 text-white px-5 py-3 rounded-2xl shadow-xl border border-white/10 max-w-sm">
+            <span class="text-2xl">🔒</span>
+            <div>
+                <p class="font-bold text-sm">Botão bloqueado</p>
+                <p class="text-xs text-gray-300 mt-0.5">Arraste uma <strong class="text-blue-300">Escola</strong>, <strong class="text-blue-300">Convocação</strong> ou <strong class="text-green-300">NPE</strong> para o dia e use Adicionar flags.</p>
+            </div>
+            <button onclick="hideLockToast()" class="ml-2 text-gray-400 hover:text-white transition text-lg leading-none">&times;</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
