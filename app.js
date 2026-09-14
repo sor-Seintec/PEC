@@ -735,15 +735,28 @@ async function updateEventNotes(id, notes, style = {}) {
     evt.notes_style = { bold: style.bold === true, color: style.color === 'red' ? 'red' : 'black' };
 }
 
-async function updateEventShift(id) {
-    const evt = scheduledEvents.find(e => e.id === id);
-    if (evt) {
-        if (evt.shift === 'Manhã') evt.shift = 'Tarde';
-        else if (evt.shift === 'Tarde') evt.shift = 'Noite';
-        else evt.shift = 'Manhã';
-        
+const EVENT_SHIFTS = ['Manhã', 'Tarde', 'Noite', 'Integral'];
+function matchesEventShift(evt, filter) {
+    const shift = evt.shift || 'Manhã';
+    return filter === 'all' || shift === filter || (shift === 'Integral' && ['Manhã', 'Tarde', 'Noite'].includes(filter));
+}
+async function updateEventShift(id, requestedShift) {
+    const evt = scheduledEvents.find(item => item.id === id);
+    if (!evt || evt.user_id !== currentUser?.id || evt.savingShift || String(id).startsWith('temp_')) return;
+    const shift = requestedShift || EVENT_SHIFTS[(EVENT_SHIFTS.indexOf(evt.shift || 'Manhã') + 1) % EVENT_SHIFTS.length];
+    if (!EVENT_SHIFTS.includes(shift)) return;
+    evt.savingShift = true;
+    try {
+        const {data, error} = await supabaseClient.from('pec_events').update({shift})
+            .eq('id', id).eq('user_id', currentUser.id).select('id');
+        if (error || !data?.length) throw error || new Error('Período não atualizado');
+        evt.shift = shift;
+    } catch (error) {
+        console.error(error);
+        alert('Não foi possível salvar o período. O período anterior foi mantido.');
+    } finally {
+        delete evt.savingShift;
         renderCalendar();
-        await dbUpdateEvent(id, { shift: evt.shift });
     }
 }
 
@@ -772,10 +785,6 @@ async function removeEvent(id) {
 }
 
 function createScheduledCard(evt) {
-    // ── NPE: Card simplificado (apenas turno + excluir) ──
-    if (evt.group_id === 'npe') {
-        return createNpeCard(evt);
-    }
 
     let cardWrapper = document.createElement('div');
     cardWrapper.className = `group flex flex-col relative p-3 pb-2 rounded-lg shadow-sm border text-sm font-medium transition-all cursor-grab active:cursor-grabbing hover:shadow-md ${evt.color_class}`;
@@ -840,23 +849,15 @@ function createScheduledCard(evt) {
     let footerDiv = document.createElement('div');
     footerDiv.className = "flex items-center justify-between gap-1 mt-auto pt-1 border-t border-black/5";
 
-    let shiftBtn = document.createElement('button');
-    let shiftIcons = {
-        'Manhã': '<i class="fa-regular fa-sun text-orange-500"></i> Manhã',
-        'Tarde': '<i class="fa-solid fa-cloud-sun text-yellow-600"></i> Tarde',
-        'Noite': '<i class="fa-solid fa-moon text-blue-500"></i> Noite'
-    };
-    
-    if(!evt.shift) evt.shift = 'Manhã'; 
-
-    shiftBtn.innerHTML = shiftIcons[evt.shift];
-    shiftBtn.className = "text-[10px] uppercase font-bold text-black/60 hover:text-black/90 bg-white/50 hover:bg-white/80 px-2 py-0.5 rounded transition-colors flex items-center gap-1";
-    shiftBtn.title = "Clique para mudar o turno";
-    
-    shiftBtn.onclick = (e) => {
-        e.stopPropagation();
-        updateEventShift(evt.id);
-    };
+    const shiftBtn = document.createElement('select');
+    shiftBtn.className = 'pec-period-select';
+    shiftBtn.setAttribute('aria-label', 'Período da atividade');
+    shiftBtn.title = 'Integral abrange manhã, tarde e noite';
+    EVENT_SHIFTS.forEach(shift => shiftBtn.add(new Option(shift, shift)));
+    shiftBtn.value = evt.shift || 'Manhã';
+    shiftBtn.disabled = !ownCard || String(evt.id).startsWith('temp_');
+    shiftBtn.onclick = event => event.stopPropagation();
+    shiftBtn.onchange = () => { shiftBtn.disabled = true; updateEventShift(evt.id, shiftBtn.value); };
 
     footerDiv.appendChild(shiftBtn);
     const person = document.createElement('span');
@@ -1185,12 +1186,12 @@ function getFilteredGestorEvents() {
     const term = normalizeFlagSearch(document.getElementById('gestor-search').value.trim());
     const {start,end} = gestorPeriod();
     const from = gestorDateKey(start), to = gestorDateKey(end);
-    const shifts = {'Manhã':0, 'Tarde':1, 'Noite':2};
+    const shifts = {'Integral':-1, 'Manhã':0, 'Tarde':1, 'Noite':2};
     return allGestorEvents.filter(evt => {
         const flags = Array.isArray(evt.flags) ? evt.flags : [];
         return evt.event_date >= from && evt.event_date <= to &&
             (value('pec') === 'all' || evt.pec_name?.toLowerCase() === value('pec')) &&
-            (value('shift') === 'all' || (evt.shift || 'Manhã') === value('shift')) &&
+            matchesEventShift(evt, value('shift')) &&
             (value('type') === 'all' || evt.group_id === value('type')) &&
             (value('school') === 'all' || (evt.text_content && evt.text_content.trim() === value('school').trim())) &&
             (value('flag') === 'all' || (value('flag') === 'none' ? !flags.length : (flags.some(flag => flag.groupId === value('flag')) || (value('flag') === 'observacoes' && evt.group_id === 'observacoes')))) &&
@@ -1235,7 +1236,8 @@ function createGestorEventCard(evt, compact = false) {
     const shiftIcons = {
         'Manhã': 'fa-regular fa-sun',
         'Tarde': 'fa-solid fa-cloud-sun',
-        'Noite': 'fa-solid fa-moon'
+        'Noite': 'fa-solid fa-moon',
+        'Integral': 'fa-solid fa-clock'
     };
     const bannerMeta = document.createElement('div');
     bannerMeta.className = 'gestor-banner-meta';
@@ -1505,7 +1507,7 @@ function filterModalPec(pec) {
 }
 
 function setModalShiftButton(activeShift) {
-    const map = { 'all': 'modal-filter-all', 'Manhã': 'modal-filter-manha', 'Tarde': 'modal-filter-tarde', 'Noite': 'modal-filter-noite' };
+    const map = { 'all': 'modal-filter-all', 'Manhã': 'modal-filter-manha', 'Tarde': 'modal-filter-tarde', 'Noite': 'modal-filter-noite', 'Integral': 'modal-filter-integral' };
     Object.entries(map).forEach(([key, id]) => {
         const btn = document.getElementById(id);
         if (!btn) return;
@@ -1522,7 +1524,7 @@ function renderModalEvents() {
     container.replaceChildren();
     
     const filtered = modalDayEvents.filter(evt => {
-        const matchShift = (modalCurrentShiftFilter === 'all') || ((evt.shift || 'Manhã') === modalCurrentShiftFilter);
+        const matchShift = matchesEventShift(evt, modalCurrentShiftFilter);
         const evtPec = (evt.pec_name || 'PEC').toLowerCase().trim();
         const matchPec = (modalCurrentPecFilter === 'all') || (evtPec === modalCurrentPecFilter.toLowerCase().trim());
         return matchShift && matchPec;

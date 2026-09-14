@@ -459,6 +459,7 @@
         .gestor-occurrence-open { margin-top: 10px; padding: 7px 10px; border-radius: 6px; background: #fee2e2; color: #991b1b; font-size: 12px; }
         .gestor-day-occurrences { color: #b91c1c; background: #fee2e2; padding: 4px 7px; border-radius: 6px; font-size: 10px; align-self: flex-start; }
         @media(max-width: 650px) { .gestor-panels { grid-template-columns: 1fr; } }
+        .pec-period-select { font-size: 11px; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px; max-width: 100%; }
     </style>
 </head>
 <body class="bg-slate-50 h-screen flex flex-col font-sans overflow-hidden">
@@ -553,7 +554,7 @@
             <div id="gestor-tools-body" class="gestor-tools-body" inert><div class="gestor-tools-inner">
         <div class="gestor-filter-bar">
             <label class="gestor-search-field">Buscar<input id="gestor-search" type="search" placeholder="PEC, escola, flag ou observação…" oninput="renderGestorCalendar()"></label>
-            <label>Turno<select id="gestor-shift-filter" onchange="renderGestorCalendar()"><option value="all">Todos os turnos</option><option>Manhã</option><option>Tarde</option><option>Noite</option></select></label>
+            <label>Turno<select id="gestor-shift-filter" onchange="renderGestorCalendar()"><option value="all">Todos os turnos</option><option>Manhã</option><option>Tarde</option><option>Noite</option><option>Integral</option></select></label>
             <label>Atividade<select id="gestor-type-filter" onchange="renderGestorCalendar()"><option value="all">Todos os tipos</option><option value="escolas">Escolas</option><option value="formacao">Convocação</option><option value="npe">NPE</option><option value="observacoes">Ocorrências / ausências</option></select></label>
             <div class="gestor-school-search-field">
                 <label id="school-filter-label">Escola</label>
@@ -714,6 +715,7 @@
                         class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 transition flex items-center gap-1">
                         <i class="fa-solid fa-moon text-blue-500"></i> Noite
                     </button>
+                    <button onclick="filterModalShift('Integral')" id="modal-filter-integral" class="modal-shift-btn px-3.5 py-1.5 rounded-full text-xs font-bold bg-gray-200 text-gray-700 transition">Integral</button>
                 </div>
 
                 <!-- Filtro por PEC -->
@@ -747,6 +749,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260909-admin-session-2"></script>
+    <script src="app.js?v=20260914-npe-integral"></script>
 </body>
 </html>
