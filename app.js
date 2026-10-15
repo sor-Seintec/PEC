@@ -82,7 +82,7 @@ const groups = [
         textColor: 'text-red-700',
         items: [
             "Atestado médico", "Ausência médica", "Doação de sangue", 
-            "Exame médico", "Falta médica", "Férias", "Feriado", "Licença médica", "Licença prêmio", 
+            "TRE", "Falta médica", "Férias", "Feriado", "Licença médica", "Licença prêmio", 
             "Ponto Facultativo", "Reunião"
         ]
     }
